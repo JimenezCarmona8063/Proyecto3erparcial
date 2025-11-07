@@ -40,6 +40,12 @@ pip install -r requirements.txt
 Desde la raíz del proyecto ejecuta:
 
 ```bash
+python run_social_net.py
+```
+
+También puedes lanzar el módulo directamente:
+
+```bash
 python -m social_net.app
 ```
 
@@ -48,6 +54,7 @@ Se abrirá una ventana con la interfaz gráfica:
 - Selecciona un usuario desde la columna izquierda para activar las acciones.
 - Utiliza los botones superiores para crear usuarios, agregar amigos, publicar, reaccionar y realizar búsquedas.
 - Cada formulario se despliega como un diálogo sobre la interfaz principal y refleja de inmediato los cambios.
+- La cabecera muestra un *ticker* de actividad reciente: cada pocos segundos la red social genera nuevas publicaciones, reacciones y comentarios para que el feed y las notificaciones se actualicen en tiempo real.
 
 ## Documentación adicional
 

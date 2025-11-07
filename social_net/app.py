@@ -13,6 +13,8 @@ from .network import SocialNetwork
 
 pygame.init()
 
+AUTO_ACTIVITY_EVENT = pygame.USEREVENT + 1
+
 
 # -- UI helpers ---------------------------------------------------------
 
@@ -174,6 +176,62 @@ def draw_multiline_text(surface: pygame.Surface, text: str, font: pygame.font.Fo
         y += font.get_linesize()
 
 
+def draw_background(surface: pygame.Surface) -> None:
+    width, height = surface.get_size()
+    gradient = pygame.Surface((1, height))
+    top_color = (24, 27, 51)
+    bottom_color = (58, 45, 102)
+    for y in range(height):
+        ratio = y / max(1, height - 1)
+        r = int(top_color[0] + (bottom_color[0] - top_color[0]) * ratio)
+        g = int(top_color[1] + (bottom_color[1] - top_color[1]) * ratio)
+        b = int(top_color[2] + (bottom_color[2] - top_color[2]) * ratio)
+        gradient.set_at((0, y), (r, g, b))
+    gradient = pygame.transform.smoothscale(gradient, (width, height))
+    surface.blit(gradient, (0, 0))
+    overlay = pygame.Surface((width, height), pygame.SRCALPHA)
+    overlay.fill((15, 18, 30, 40))
+    surface.blit(overlay, (0, 0))
+
+
+def draw_card(surface: pygame.Surface, rect: pygame.Rect, color: tuple[int, int, int], border_color: tuple[int, int, int]) -> None:
+    card = pygame.Surface(rect.size, pygame.SRCALPHA)
+    pygame.draw.rect(card, color + (190,), card.get_rect(), border_radius=14)
+    surface.blit(card, rect.topleft)
+    pygame.draw.rect(surface, border_color, rect, 2, border_radius=14)
+
+
+def draw_header(
+    surface: pygame.Surface,
+    message: str,
+    live_activity: List[str],
+    font: pygame.font.Font,
+    small_font: pygame.font.Font,
+    big_font: pygame.font.Font,
+) -> None:
+    header_rect = pygame.Rect(20, 10, surface.get_width() - 40, 110)
+    draw_card(surface, header_rect, (62, 72, 124), (120, 148, 220))
+
+    title_surface = big_font.render("Social Net System", True, (250, 252, 255))
+    surface.blit(title_surface, (header_rect.x + 24, header_rect.y + 16))
+    subtitle = small_font.render(
+        "Simulación de red social con actividad en tiempo real",
+        True,
+        (220, 226, 250),
+    )
+    surface.blit(subtitle, (header_rect.x + 24, header_rect.y + 50))
+
+    message_surface = font.render(message, True, (253, 255, 255))
+    surface.blit(message_surface, (header_rect.x + 24, header_rect.y + 74))
+
+    if live_activity:
+        pill_rect = pygame.Rect(header_rect.right - 280, header_rect.y + 20, 260, 68)
+        draw_card(surface, pill_rect, (46, 54, 96), (110, 140, 210))
+        label = small_font.render("Actividad reciente", True, (216, 222, 255))
+        surface.blit(label, (pill_rect.x + 16, pill_rect.y + 8))
+        for idx, item in enumerate(reversed(live_activity[-3:])):
+            text_surface = small_font.render(f"• {item}", True, (230, 234, 255))
+            surface.blit(text_surface, (pill_rect.x + 16, pill_rect.y + 26 + idx * 16))
 # -- App ----------------------------------------------------------------
 
 
@@ -188,11 +246,13 @@ def main() -> None:
 
     network = SocialNetwork()
     network.seed_demo_data()
+    pygame.time.set_timer(AUTO_ACTIVITY_EVENT, 5000)
 
     buttons: List[Button] = []
     message = "Haz clic en un usuario para comenzar"
     notification_log: List[str] = []
     search_posts_results: List[Post] = []
+    live_activity: List[str] = []
     active_form: Optional[Form] = None
     selected_user: Optional[User] = None
 
@@ -374,6 +434,13 @@ def main() -> None:
             if event.type == pygame.QUIT:
                 pygame.quit()
                 sys.exit()
+            if event.type == AUTO_ACTIVITY_EVENT:
+                updates = network.simulate_activity()
+                if updates:
+                    live_activity.extend(updates)
+                    live_activity[:] = live_activity[-6:]
+                    set_message(updates[-1])
+                continue
             if active_form is not None:
                 active_form.handle_event(event)
             else:
@@ -383,17 +450,30 @@ def main() -> None:
                     selected_user = handle_user_click(network, event.pos)
                     if selected_user:
                         set_message(f"Usuario activo: {selected_user.username}")
-        render(screen, network, buttons, selected_user, message, notification_log, search_posts_results, active_form, font, small_font, big_font)
+        render(
+            screen,
+            network,
+            buttons,
+            selected_user,
+            message,
+            notification_log,
+            search_posts_results,
+            live_activity,
+            active_form,
+            font,
+            small_font,
+            big_font,
+        )
         pygame.display.flip()
         clock.tick(30)
 
 
 def handle_user_click(network: SocialNetwork, pos: tuple[int, int]) -> Optional[User]:
-    user_area = pygame.Rect(30, 120, 200, 520)
+    user_area = pygame.Rect(35, 150, 190, 470)
     if not user_area.collidepoint(pos):
         return None
     usernames = list(network.users.keys())
-    index = (pos[1] - user_area.y) // 60
+    index = (pos[1] - user_area.y) // 80
     if 0 <= index < len(usernames):
         return network.users[usernames[index]]
     return None
@@ -407,22 +487,21 @@ def render(
     message: str,
     notification_log: List[str],
     search_posts_results: List[Post],
+    live_activity: List[str],
     active_form: Optional[Form],
     font: pygame.font.Font,
     small_font: pygame.font.Font,
     big_font: pygame.font.Font,
 ) -> None:
-    screen.fill((28, 31, 48))
+    draw_background(screen)
+    draw_header(screen, message, live_activity, font, small_font, big_font)
 
-    pygame.draw.rect(screen, (42, 48, 74), pygame.Rect(20, 110, 210, 540), border_radius=10)
-    pygame.draw.rect(screen, (42, 48, 74), pygame.Rect(240, 120, 830, 230), border_radius=10)
-    pygame.draw.rect(screen, (42, 48, 74), pygame.Rect(240, 360, 830, 290), border_radius=10)
+    draw_card(screen, pygame.Rect(20, 130, 210, 520), (54, 63, 110), (110, 138, 210))
+    draw_card(screen, pygame.Rect(240, 140, 830, 220), (54, 63, 110), (110, 138, 210))
+    draw_card(screen, pygame.Rect(240, 380, 830, 310), (54, 63, 110), (110, 138, 210))
 
-    title_surface = big_font.render("Usuarios", True, (220, 220, 240))
-    screen.blit(title_surface, (60, 80))
-
-    message_surface = font.render(message, True, (220, 220, 240))
-    screen.blit(message_surface, (240, 110))
+    title_surface = big_font.render("Usuarios", True, (232, 236, 255))
+    screen.blit(title_surface, (60, 140))
 
     for button in buttons:
         button.draw(screen, font)
@@ -436,78 +515,114 @@ def render(
 
 
 def draw_user_list(screen: pygame.Surface, network: SocialNetwork, selected_user: Optional[User], font: pygame.font.Font, small_font: pygame.font.Font) -> None:
-    area = pygame.Rect(30, 120, 200, 520)
+    area = pygame.Rect(35, 150, 190, 470)
     usernames = list(network.users.keys())
     for idx, username in enumerate(usernames):
-        item_rect = pygame.Rect(area.x + 10, area.y + idx * 60 + 10, area.width - 20, 50)
-        color = (90, 110, 170) if selected_user and selected_user.username == username else (70, 90, 140)
-        pygame.draw.rect(screen, color, item_rect, border_radius=8)
+        item_rect = pygame.Rect(area.x, area.y + idx * 80, area.width, 68)
+        if item_rect.bottom > area.bottom + 60:
+            break
+        is_selected = selected_user and selected_user.username == username
+        base_color = (92, 112, 190) if is_selected else (70, 86, 148)
+        glow = pygame.Surface(item_rect.size, pygame.SRCALPHA)
+        pygame.draw.rect(glow, base_color + (210,), glow.get_rect(), border_radius=14)
+        screen.blit(glow, item_rect.topleft)
+        pygame.draw.rect(screen, (180, 198, 255) if is_selected else (120, 140, 210), item_rect, 2, border_radius=14)
+
         user = network.users[username]
-        name_surface = font.render(user.full_name, True, (240, 240, 255))
-        screen.blit(name_surface, (item_rect.x + 10, item_rect.y + 8))
-        username_surface = small_font.render(f"@{user.username}", True, (220, 220, 240))
-        screen.blit(username_surface, (item_rect.x + 10, item_rect.y + 30))
+        avatar_rect = pygame.Rect(item_rect.x + 12, item_rect.y + 14, 40, 40)
+        pygame.draw.circle(screen, (234, 242, 255) if is_selected else (206, 212, 240), avatar_rect.center, 20)
+        initials = user.full_name[:2].upper()
+        initials_surface = small_font.render(initials, True, (62, 72, 120))
+        initials_rect = initials_surface.get_rect(center=avatar_rect.center)
+        screen.blit(initials_surface, initials_rect)
+
+        name_surface = font.render(user.full_name, True, (250, 250, 255))
+        screen.blit(name_surface, (item_rect.x + 64, item_rect.y + 14))
+        username_surface = small_font.render(f"@{user.username}", True, (220, 226, 250))
+        screen.blit(username_surface, (item_rect.x + 64, item_rect.y + 38))
 
 
 def draw_feed(screen: pygame.Surface, network: SocialNetwork, font: pygame.font.Font, small_font: pygame.font.Font, search_posts_results: List[Post]) -> None:
-    area = pygame.Rect(250, 130, 810, 210)
-    if search_posts_results:
-        label = "Resultados de búsqueda"
-    else:
-        label = "Top publicaciones"
-    title = font.render(label, True, (220, 220, 240))
-    screen.blit(title, (area.x, area.y - 26))
+    area = pygame.Rect(250, 150, 810, 210)
+    label = "Resultados de búsqueda" if search_posts_results else "Top publicaciones"
+    title = font.render(label, True, (232, 236, 255))
+    screen.blit(title, (area.x + 10, area.y - 32))
     posts = search_posts_results if search_posts_results else network.get_top_posts()
+    ticks = pygame.time.get_ticks()
     for idx, post in enumerate(posts[:5]):
-        item_rect = pygame.Rect(area.x + 10, area.y + idx * 40, area.width - 20, 34)
-        pygame.draw.rect(screen, (60 + idx * 10, 70 + idx * 8, 110 + idx * 10), item_rect, border_radius=6)
-        summary = small_font.render(f"#{post.post_id} {post.summary()}", True, (250, 250, 255))
-        stats = small_font.render(f"❤ {len(post.likes)}   💬 {len(post.comments)}", True, (250, 200, 220))
-        screen.blit(summary, (item_rect.x + 10, item_rect.y + 6))
-        screen.blit(stats, (item_rect.right - 140, item_rect.y + 6))
+        item_rect = pygame.Rect(area.x + 14, area.y + idx * 40 + 10, area.width - 28, 36)
+        pulse = (ticks // 12 + idx * 18) % 120
+        base_color = (
+            min(255, 70 + pulse),
+            min(255, 80 + idx * 12),
+            min(255, 140 + pulse // 2),
+        )
+        item_surface = pygame.Surface(item_rect.size, pygame.SRCALPHA)
+        pygame.draw.rect(item_surface, base_color + (210,), item_surface.get_rect(), border_radius=12)
+        screen.blit(item_surface, item_rect.topleft)
+        pygame.draw.rect(screen, (210, 220, 255), item_rect, 1, border_radius=12)
+
+        summary = small_font.render(f"#{post.post_id} {post.summary()}", True, (253, 254, 255))
+        stats = small_font.render(f"❤ {len(post.likes)}   💬 {len(post.comments)}", True, (250, 210, 234))
+        screen.blit(summary, (item_rect.x + 16, item_rect.y + 8))
+        screen.blit(stats, (item_rect.right - 150, item_rect.y + 8))
 
 
 def draw_user_panel(screen: pygame.Surface, user: Optional[User], notification_log: List[str], font: pygame.font.Font, small_font: pygame.font.Font) -> None:
-    area = pygame.Rect(250, 370, 810, 270)
-    title = font.render("Resumen del usuario", True, (220, 220, 240))
-    screen.blit(title, (area.x, area.y - 26))
+    area = pygame.Rect(250, 390, 810, 290)
+    title = font.render("Resumen del usuario", True, (232, 236, 255))
+    screen.blit(title, (area.x + 10, area.y - 32))
 
     if not user:
-        hint = small_font.render("Selecciona un usuario para ver detalles", True, (220, 220, 240))
-        screen.blit(hint, (area.x + 10, area.y + 10))
+        hint = small_font.render("Selecciona un usuario para ver detalles", True, (224, 228, 248))
+        screen.blit(hint, (area.x + 20, area.y + 20))
         return
 
-    pygame.draw.rect(screen, (70, 90, 140), pygame.Rect(area.x + 10, area.y + 10, area.width - 20, 80), border_radius=10)
-    name_surface = font.render(user.full_name, True, (250, 250, 255))
-    screen.blit(name_surface, (area.x + 30, area.y + 20))
-    username_surface = small_font.render(f"@{user.username}", True, (210, 220, 240))
-    screen.blit(username_surface, (area.x + 30, area.y + 50))
-    bio_surface = small_font.render(user.bio or "Sin biografía", True, (210, 220, 240))
-    screen.blit(bio_surface, (area.x + 30, area.y + 70))
+    header_rect = pygame.Rect(area.x + 20, area.y + 16, area.width - 40, 90)
+    draw_card(screen, header_rect, (72, 88, 148), (140, 170, 240))
+    name_surface = font.render(user.full_name, True, (253, 254, 255))
+    screen.blit(name_surface, (header_rect.x + 20, header_rect.y + 14))
+    username_surface = small_font.render(f"@{user.username}", True, (216, 224, 248))
+    screen.blit(username_surface, (header_rect.x + 20, header_rect.y + 42))
+    bio_surface = small_font.render(user.bio or "Sin biografía", True, (216, 224, 248))
+    screen.blit(bio_surface, (header_rect.x + 20, header_rect.y + 64))
 
-    friends_title = small_font.render("Amigos:", True, (220, 220, 240))
-    screen.blit(friends_title, (area.x + 20, area.y + 110))
+    pending = len(user.notifications)
+    badge = small_font.render(f"Notificaciones pendientes: {pending}", True, (240, 244, 255))
+    screen.blit(badge, (header_rect.right - 250, header_rect.y + 20))
+
+    friends_rect = pygame.Rect(area.x + 20, area.y + 120, 240, 130)
+    draw_card(screen, friends_rect, (66, 80, 134), (130, 160, 228))
+    friends_title = small_font.render("Amigos", True, (234, 238, 255))
+    screen.blit(friends_title, (friends_rect.x + 16, friends_rect.y + 10))
     if user.friends:
         for idx, friend in enumerate(sorted(user.friends)):
-            friend_surface = small_font.render(f"• {friend}", True, (220, 220, 240))
-            screen.blit(friend_surface, (area.x + 30, area.y + 130 + idx * 20))
+            friend_surface = small_font.render(f"• {friend}", True, (224, 230, 255))
+            screen.blit(friend_surface, (friends_rect.x + 16, friends_rect.y + 30 + idx * 18))
+            if friends_rect.y + 30 + idx * 18 > friends_rect.bottom - 24:
+                break
     else:
-        screen.blit(small_font.render("Sin amigos todavía", True, (220, 220, 240)), (area.x + 30, area.y + 130))
+        screen.blit(small_font.render("Sin amigos todavía", True, (224, 230, 255)), (friends_rect.x + 16, friends_rect.y + 36))
 
-    posts_title = small_font.render("Publicaciones recientes:", True, (220, 220, 240))
-    screen.blit(posts_title, (area.x + 300, area.y + 110))
+    posts_rect = pygame.Rect(area.x + 280, area.y + 120, 270, 130)
+    draw_card(screen, posts_rect, (66, 80, 134), (130, 160, 228))
+    posts_title = small_font.render("Publicaciones recientes", True, (234, 238, 255))
+    screen.blit(posts_title, (posts_rect.x + 16, posts_rect.y + 10))
     for idx, post in enumerate(list(user.posts)[-3:][::-1]):
-        post_surface = small_font.render(f"#{post.post_id} {post.content[:50]}" + ("..." if len(post.content) > 50 else ""), True, (220, 220, 240))
-        screen.blit(post_surface, (area.x + 300, area.y + 130 + idx * 22))
+        preview = post.content[:60] + ("..." if len(post.content) > 60 else "")
+        post_surface = small_font.render(f"#{post.post_id} {preview}", True, (224, 230, 255))
+        screen.blit(post_surface, (posts_rect.x + 16, posts_rect.y + 30 + idx * 18))
 
-    notif_title = small_font.render("Historial de notificaciones:", True, (220, 220, 240))
-    screen.blit(notif_title, (area.x + 20, area.y + 220))
+    notif_rect = pygame.Rect(area.x + 570, area.y + 120, 240, 130)
+    draw_card(screen, notif_rect, (66, 80, 134), (130, 160, 228))
+    notif_title = small_font.render("Historial de notificaciones", True, (234, 238, 255))
+    screen.blit(notif_title, (notif_rect.x + 16, notif_rect.y + 10))
     if notification_log:
         for idx, note in enumerate(notification_log[-4:][::-1]):
-            note_surface = small_font.render(note, True, (210, 210, 230))
-            screen.blit(note_surface, (area.x + 30, area.y + 240 + idx * 18))
+            note_surface = small_font.render(note, True, (224, 230, 255))
+            screen.blit(note_surface, (notif_rect.x + 16, notif_rect.y + 30 + idx * 18))
     else:
-        screen.blit(small_font.render("Sin notificaciones", True, (220, 220, 240)), (area.x + 30, area.y + 240))
+        screen.blit(small_font.render("Sin notificaciones", True, (224, 230, 255)), (notif_rect.x + 16, notif_rect.y + 36))
 
 
 if __name__ == "__main__":

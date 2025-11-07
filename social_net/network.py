@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import heapq
+import random
 from datetime import datetime
 from typing import Dict, List
 
@@ -111,6 +112,66 @@ class SocialNetwork:
     def pop_notifications(self, username: str) -> List[str]:
         user = self._require_user(username)
         return user.pop_notifications()
+
+    # -- Activity simulation --------------------------------------------
+
+    def simulate_activity(self) -> List[str]:
+        """Generate spontaneous interactions to keep the feed alive.
+
+        Returns a list of messages describing the performed actions so the
+        interface can surface them to the user.
+        """
+
+        if len(self.users) < 1:
+            return []
+
+        actions: List[str] = []
+        users = list(self.users.values())
+
+        # Choose among publishing, liking or commenting with different weights.
+        choice = random.random()
+
+        if choice < 0.33 or not self.posts_by_id:
+            author = random.choice(users)
+            prompts = [
+                "Descubrí un nuevo lugar espectacular hoy",
+                "¡Compartiendo inspiración para el resto de la semana!",
+                "Pequeña actualización de mi proyecto personal",
+                "Tips rápidos para mantener la creatividad encendida",
+                "¿Quién se apunta a una colaboración?",
+            ]
+            content = f"{random.choice(prompts)} ({datetime.utcnow().strftime('%H:%M:%S')})"
+            post = self.create_post(author.username, content)
+            actions.append(f"{author.full_name} publicó #{post.post_id}")
+            return actions
+
+        candidates = list(self.posts_by_id.values())
+        if choice < 0.66:
+            actor = random.choice(users)
+            available = [
+                post
+                for post in candidates
+                if post.author != actor.username and actor.username not in post.likes
+            ]
+            if not available:
+                return actions
+            post = random.choice(available)
+            self.like_post(actor.username, post.post_id)
+            actions.append(f"{actor.full_name} reaccionó a #{post.post_id}")
+            return actions
+
+        actor = random.choice(users)
+        post = random.choice(candidates)
+        comments = [
+            "¡Me encanta esto!",
+            "Totalmente de acuerdo",
+            "Necesito más detalles 😍",
+            "Esto merece un hilo completo",
+            "Agregando esto a mi lista de favoritos",
+        ]
+        self.comment_post(actor.username, post.post_id, random.choice(comments))
+        actions.append(f"{actor.full_name} comentó en #{post.post_id}")
+        return actions
 
     # -- Internal helpers ------------------------------------------------
 
