@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import sys
 from dataclasses import dataclass
-from typing import Callable, List, Optional
+from typing import Callable, List, Optional, Tuple
 
 import pygame
 
@@ -24,31 +24,39 @@ class Button:
     rect: pygame.Rect
     label: str
     callback: Callable[[], None]
+    enabled: bool = True
 
     def draw(self, surface: pygame.Surface, font: pygame.font.Font) -> None:
         mouse_pos = pygame.mouse.get_pos()
         hovered = self.rect.collidepoint(mouse_pos)
-        color = (70, 90, 160) if hovered else (52, 61, 94)
+        if not self.enabled:
+            color = (90, 96, 130)
+        else:
+            color = (70, 90, 160) if hovered else (52, 61, 94)
         pygame.draw.rect(surface, color, self.rect, border_radius=6)
-        text_surface = font.render(self.label, True, (240, 240, 255))
+        text_color = (240, 240, 255) if self.enabled else (200, 205, 225)
+        text_surface = font.render(self.label, True, text_color)
         surface.blit(
             text_surface,
             text_surface.get_rect(center=self.rect.center),
         )
 
     def handle_event(self, event: pygame.event.Event) -> None:
+        if not self.enabled:
+            return
         if event.type == pygame.MOUSEBUTTONDOWN and event.button == 1:
             if self.rect.collidepoint(event.pos):
                 self.callback()
 
 
 class InputField:
-    def __init__(self, label: str, rect: pygame.Rect, multiline: bool = False) -> None:
+    def __init__(self, label: str, rect: pygame.Rect, multiline: bool = False, password: bool = False) -> None:
         self.label = label
         self.rect = rect
         self.text = ""
         self.active = False
         self.multiline = multiline
+        self.password = password
 
     def handle_event(self, event: pygame.event.Event) -> Optional[str]:
         if event.type == pygame.MOUSEBUTTONDOWN and event.button == 1:
@@ -79,12 +87,25 @@ class InputField:
         if self.multiline:
             draw_multiline_text(surface, self.text or "", font, self.rect.inflate(-10, -10), (20, 20, 40))
         else:
-            text_surface = font.render(self.text, True, (20, 20, 40))
+            display_text = self.text
+            if self.password and self.text:
+                display_text = "•" * len(self.text)
+            text_surface = font.render(display_text, True, (20, 20, 40))
             surface.blit(text_surface, (self.rect.x + 8, self.rect.y + (self.rect.height - text_surface.get_height()) // 2))
 
 
 class Form:
-    def __init__(self, title: str, fields: List[InputField], on_submit: Callable[[List[str]], None], on_cancel: Callable[[], None]) -> None:
+    def __init__(
+        self,
+        title: str,
+        fields: List[InputField],
+        on_submit: Callable[[List[str]], None],
+        on_cancel: Callable[[], None],
+        submit_label: str = "Guardar",
+        cancel_label: str = "Cancelar",
+        secondary_action: Optional[Tuple[str, Callable[[], None]]] = None,
+        helper_text: str | None = None,
+    ) -> None:
         self.title = title
         self.fields = fields
         self.on_submit = on_submit
@@ -92,8 +113,14 @@ class Form:
         self.active_index = 0 if fields else -1
         if self.fields:
             self.fields[0].active = True
-        self.submit_button = Button(pygame.Rect(0, 0, 140, 36), "Guardar", self.submit)
-        self.cancel_button = Button(pygame.Rect(0, 0, 140, 36), "Cancelar", self.cancel)
+        self.submit_button = Button(pygame.Rect(0, 0, 160, 38), submit_label, self.submit)
+        self.cancel_button = Button(pygame.Rect(0, 0, 160, 38), cancel_label, self.cancel)
+        self.secondary_button = (
+            Button(pygame.Rect(0, 0, 160, 38), secondary_action[0], secondary_action[1])
+            if secondary_action
+            else None
+        )
+        self.helper_text = helper_text
 
     def submit(self) -> None:
         values = [field.text.strip() for field in self.fields]
@@ -118,6 +145,8 @@ class Form:
                 break
         self.submit_button.handle_event(event)
         self.cancel_button.handle_event(event)
+        if self.secondary_button is not None:
+            self.secondary_button.handle_event(event)
 
     def _focus(self, index: int) -> None:
         for i, field in enumerate(self.fields):
@@ -145,11 +174,23 @@ class Form:
             field.draw(surface, font)
             current_y += field.rect.height + 50
 
+        if self.helper_text:
+            helper_surface = font.render(self.helper_text, True, (90, 100, 140))
+            surface.blit(helper_surface, (form_rect.x + 40, form_rect.bottom - 120))
+
         button_y = form_rect.bottom - 70
-        self.submit_button.rect.center = (form_rect.centerx - 90, button_y)
-        self.cancel_button.rect.center = (form_rect.centerx + 90, button_y)
+        if self.secondary_button is None:
+            self.submit_button.rect.center = (form_rect.centerx - 100, button_y)
+            self.cancel_button.rect.center = (form_rect.centerx + 100, button_y)
+        else:
+            self.submit_button.rect.center = (form_rect.centerx - 200, button_y)
+            self.secondary_button.rect.center = (form_rect.centerx, button_y)
+            self.cancel_button.rect.center = (form_rect.centerx + 200, button_y)
+
         self.submit_button.draw(surface, font)
         self.cancel_button.draw(surface, font)
+        if self.secondary_button is not None:
+            self.secondary_button.draw(surface, font)
 
 
 # -- Drawing utilities --------------------------------------------------
@@ -208,28 +249,38 @@ def draw_header(
     font: pygame.font.Font,
     small_font: pygame.font.Font,
     big_font: pygame.font.Font,
+    logged_in_user: Optional[User],
 ) -> None:
-    header_rect = pygame.Rect(20, 10, surface.get_width() - 40, 110)
+    header_rect = pygame.Rect(20, 10, surface.get_width() - 40, 130)
     draw_card(surface, header_rect, (62, 72, 124), (120, 148, 220))
 
     title_surface = big_font.render("Social Net System", True, (250, 252, 255))
     surface.blit(title_surface, (header_rect.x + 24, header_rect.y + 16))
+
     subtitle = small_font.render(
         "Simulación de red social con actividad en tiempo real",
         True,
         (220, 226, 250),
     )
-    surface.blit(subtitle, (header_rect.x + 24, header_rect.y + 50))
+    surface.blit(subtitle, (header_rect.x + 24, header_rect.y + 44))
+
+    session_text = (
+        f"Sesión activa: {logged_in_user.full_name} (@{logged_in_user.username})"
+        if logged_in_user
+        else "Sin sesión activa · inicia sesión para crear publicaciones"
+    )
+    session_surface = small_font.render(session_text, True, (214, 222, 255))
+    surface.blit(session_surface, (header_rect.x + 24, header_rect.y + 66))
 
     message_surface = font.render(message, True, (253, 255, 255))
-    surface.blit(message_surface, (header_rect.x + 24, header_rect.y + 74))
+    surface.blit(message_surface, (header_rect.x + 24, header_rect.y + 92))
 
     if live_activity:
-        pill_rect = pygame.Rect(header_rect.right - 280, header_rect.y + 20, 260, 68)
+        pill_rect = pygame.Rect(header_rect.right - 280, header_rect.y + 20, 260, 88)
         draw_card(surface, pill_rect, (46, 54, 96), (110, 140, 210))
         label = small_font.render("Actividad reciente", True, (216, 222, 255))
         surface.blit(label, (pill_rect.x + 16, pill_rect.y + 8))
-        for idx, item in enumerate(reversed(live_activity[-3:])):
+        for idx, item in enumerate(reversed(live_activity[-4:])):
             text_surface = small_font.render(f"• {item}", True, (230, 234, 255))
             surface.blit(text_surface, (pill_rect.x + 16, pill_rect.y + 26 + idx * 16))
 # -- App ----------------------------------------------------------------
@@ -249,12 +300,13 @@ def main() -> None:
     pygame.time.set_timer(AUTO_ACTIVITY_EVENT, 5000)
 
     buttons: List[Button] = []
-    message = "Haz clic en un usuario para comenzar"
+    message = "Inicia sesión para comenzar"
     notification_log: List[str] = []
     search_posts_results: List[Post] = []
     live_activity: List[str] = []
     active_form: Optional[Form] = None
     selected_user: Optional[User] = None
+    logged_in_user: Optional[User] = None
 
     def set_message(text: str) -> None:
         nonlocal message
@@ -264,41 +316,121 @@ def main() -> None:
         nonlocal active_form
         active_form = None
 
-    def require_user_selected() -> bool:
-        if selected_user is None:
-            set_message("Selecciona un usuario en la lista")
+    def set_logged_in(user: User) -> None:
+        nonlocal logged_in_user, selected_user
+        logged_in_user = user
+        selected_user = user
+        set_message(f"Sesión iniciada como {user.username}")
+        update_session_ui()
+
+    def logout() -> None:
+        nonlocal logged_in_user, selected_user, search_posts_results
+        logged_in_user = None
+        selected_user = None
+        search_posts_results = []
+        set_message("Sesión cerrada. Inicia sesión para participar.")
+        update_session_ui()
+
+    def require_session(action: str = "realizar esta acción") -> bool:
+        if logged_in_user is None:
+            set_message(f"Inicia sesión para {action}")
+            open_login_form()
             return False
         return True
 
-    def add_user_form() -> None:
+    def open_login_form() -> None:
         nonlocal active_form
 
         def submit(values: List[str]) -> None:
-            username, full_name, bio = values
+            username, password = values
+            if not username or not password:
+                set_message("Ingresa usuario y contraseña")
+                return
             try:
-                user = network.add_user(username, full_name, bio)
-                set_message(f"Usuario {user.username} creado")
+                user = network.authenticate_user(username, password)
             except ValueError as exc:
                 set_message(str(exc))
+                return
+            set_logged_in(user)
             close_form()
 
+        def go_register() -> None:
+            close_form()
+            open_register_form()
+
         fields = [
-            InputField("Usuario", pygame.Rect(0, 0, 400, 40)),
-            InputField("Nombre completo", pygame.Rect(0, 0, 400, 40)),
-            InputField("Biografía", pygame.Rect(0, 0, 400, 80), multiline=True),
+            InputField("Usuario", pygame.Rect(0, 0, 360, 44)),
+            InputField("Contraseña", pygame.Rect(0, 0, 360, 44), password=True),
         ]
-        active_form = Form("Nuevo usuario", fields, submit, close_form)
+        active_form = Form(
+            "Iniciar sesión",
+            fields,
+            submit,
+            close_form,
+            submit_label="Entrar",
+            cancel_label="Cerrar",
+            secondary_action=("Crear cuenta", go_register),
+            helper_text="Accede con tu cuenta para publicar, reaccionar y gestionar tu red.",
+        )
+
+    def open_register_form() -> None:
+        nonlocal active_form, live_activity
+
+        def submit(values: List[str]) -> None:
+            username, full_name, bio, password, confirm = values
+            if not username or not full_name:
+                set_message("Completa usuario y nombre")
+                return
+            if len(password) < 4:
+                set_message("La contraseña debe tener al menos 4 caracteres")
+                return
+            if password != confirm:
+                set_message("Las contraseñas no coinciden")
+                return
+            try:
+                user = network.add_user(username, full_name, bio, password)
+            except ValueError as exc:
+                set_message(str(exc))
+                return
+            set_logged_in(user)
+            set_message(f"Bienvenido {user.full_name}")
+            live_activity.append(f"{user.full_name} se unió a la red")
+            live_activity[:] = live_activity[-6:]
+            close_form()
+
+        def go_login() -> None:
+            close_form()
+            open_login_form()
+
+        fields = [
+            InputField("Usuario", pygame.Rect(0, 0, 380, 44)),
+            InputField("Nombre completo", pygame.Rect(0, 0, 380, 44)),
+            InputField("Biografía", pygame.Rect(0, 0, 380, 100), multiline=True),
+            InputField("Contraseña", pygame.Rect(0, 0, 380, 44), password=True),
+            InputField("Confirmar contraseña", pygame.Rect(0, 0, 380, 44), password=True),
+        ]
+        active_form = Form(
+            "Crear cuenta",
+            fields,
+            submit,
+            close_form,
+            submit_label="Crear cuenta",
+            cancel_label="Cancelar",
+            secondary_action=("Ya tengo cuenta", go_login),
+            helper_text="Tu contraseña se guarda cifrada solo para esta demostración.",
+        )
 
     def add_friend_form() -> None:
         nonlocal active_form
-        if not require_user_selected():
+        if not require_session("agregar amigos"):
             return
 
         def submit(values: List[str]) -> None:
             friend_username = values[0]
             try:
-                network.add_friend(selected_user.username, friend_username)
-                set_message(f"Ahora {selected_user.username} es amigo de {friend_username}")
+                assert logged_in_user is not None
+                network.add_friend(logged_in_user.username, friend_username)
+                set_message(f"Ahora {logged_in_user.username} es amigo de {friend_username}")
             except ValueError as exc:
                 set_message(str(exc))
             close_form()
@@ -307,8 +439,8 @@ def main() -> None:
         active_form = Form("Agregar amigo", fields, submit, close_form)
 
     def create_post_form() -> None:
-        nonlocal active_form
-        if not require_user_selected():
+        nonlocal active_form, live_activity
+        if not require_session("crear publicaciones"):
             return
 
         def submit(values: List[str]) -> None:
@@ -316,16 +448,19 @@ def main() -> None:
             if not content:
                 set_message("El contenido no puede estar vacío")
                 return
-            post = network.create_post(selected_user.username, content)
-            set_message(f"Publicación #{post.post_id} creada por {selected_user.username}")
+            assert logged_in_user is not None
+            post = network.create_post(logged_in_user.username, content)
+            set_message(f"Publicación #{post.post_id} creada por {logged_in_user.username}")
+            live_activity.append(f"{logged_in_user.full_name} publicó #{post.post_id}")
+            live_activity[:] = live_activity[-6:]
             close_form()
 
         fields = [InputField("Contenido de la publicación", pygame.Rect(0, 0, 500, 120), multiline=True)]
         active_form = Form("Crear publicación", fields, submit, close_form)
 
     def like_post_form() -> None:
-        nonlocal active_form
-        if not require_user_selected():
+        nonlocal active_form, live_activity
+        if not require_session("reaccionar a publicaciones"):
             return
 
         def submit(values: List[str]) -> None:
@@ -335,8 +470,11 @@ def main() -> None:
                 set_message("El identificador debe ser un número")
                 return
             try:
-                network.like_post(selected_user.username, post_id)
+                assert logged_in_user is not None
+                network.like_post(logged_in_user.username, post_id)
                 set_message(f"Te gustó la publicación #{post_id}")
+                live_activity.append(f"{logged_in_user.full_name} reaccionó a #{post_id}")
+                live_activity[:] = live_activity[-6:]
             except ValueError as exc:
                 set_message(str(exc))
             close_form()
@@ -345,8 +483,8 @@ def main() -> None:
         active_form = Form("Dar me gusta", fields, submit, close_form)
 
     def comment_post_form() -> None:
-        nonlocal active_form
-        if not require_user_selected():
+        nonlocal active_form, live_activity
+        if not require_session("comentar publicaciones"):
             return
 
         def submit(values: List[str]) -> None:
@@ -360,8 +498,11 @@ def main() -> None:
                 set_message("Escribe un comentario")
                 return
             try:
-                network.comment_post(selected_user.username, post_id, comment)
+                assert logged_in_user is not None
+                network.comment_post(logged_in_user.username, post_id, comment)
                 set_message(f"Comentaste la publicación #{post_id}")
+                live_activity.append(f"{logged_in_user.full_name} comentó en #{post_id}")
+                live_activity[:] = live_activity[-6:]
             except ValueError as exc:
                 set_message(str(exc))
             close_form()
@@ -373,13 +514,14 @@ def main() -> None:
         active_form = Form("Comentar publicación", fields, submit, close_form)
 
     def show_notifications() -> None:
-        if not require_user_selected():
+        if not require_session("revisar notificaciones"):
             return
-        notifications = network.pop_notifications(selected_user.username)
+        assert logged_in_user is not None
+        notifications = network.pop_notifications(logged_in_user.username)
         if notifications:
             notification_log.extend(notifications)
-            if len(notification_log) > 20:
-                del notification_log[:-20]
+            if len(notification_log) > 24:
+                del notification_log[:-24]
             set_message(f"Mostrando {len(notifications)} notificaciones nuevas")
         else:
             set_message("Sin notificaciones nuevas")
@@ -410,7 +552,10 @@ def main() -> None:
             users = network.search_users(term)
             if users:
                 selected_user = users[0]
-                set_message(f"Se seleccionó a {selected_user.username}")
+                if logged_in_user and selected_user.username == logged_in_user.username:
+                    set_message("Se seleccionó tu propio perfil")
+                else:
+                    set_message(f"Se seleccionó a {selected_user.username}")
             else:
                 set_message("No se encontraron usuarios")
             close_form()
@@ -418,16 +563,50 @@ def main() -> None:
         fields = [InputField("Buscar usuarios", pygame.Rect(0, 0, 360, 40))]
         active_form = Form("Buscar usuarios", fields, submit, close_form)
 
+    session_button = Button(pygame.Rect(260, 20, 150, 40), "Iniciar sesión", open_login_form)
+    register_button = Button(pygame.Rect(420, 20, 150, 40), "Registrarse", open_register_form)
+    add_friend_button = Button(pygame.Rect(580, 20, 150, 40), "Agregar amigo", add_friend_form)
+    create_post_button = Button(pygame.Rect(740, 20, 150, 40), "Crear post", create_post_form)
+    like_post_button = Button(pygame.Rect(900, 20, 150, 40), "Me gusta", like_post_form)
+    comment_button = Button(pygame.Rect(260, 70, 150, 36), "Comentar", comment_post_form)
+    notifications_button = Button(pygame.Rect(420, 70, 150, 36), "Notificaciones", show_notifications)
+    search_posts_button = Button(pygame.Rect(580, 70, 150, 36), "Buscar posts", search_posts_form)
+    search_users_button = Button(pygame.Rect(740, 70, 150, 36), "Buscar usuarios", search_users_form)
+
     buttons = [
-        Button(pygame.Rect(260, 20, 150, 40), "Nuevo usuario", add_user_form),
-        Button(pygame.Rect(420, 20, 150, 40), "Agregar amigo", add_friend_form),
-        Button(pygame.Rect(580, 20, 150, 40), "Crear post", create_post_form),
-        Button(pygame.Rect(740, 20, 150, 40), "Me gusta", like_post_form),
-        Button(pygame.Rect(900, 20, 150, 40), "Comentar", comment_post_form),
-        Button(pygame.Rect(260, 70, 150, 36), "Notificaciones", show_notifications),
-        Button(pygame.Rect(420, 70, 150, 36), "Buscar posts", search_posts_form),
-        Button(pygame.Rect(580, 70, 150, 36), "Buscar usuarios", search_users_form),
+        session_button,
+        register_button,
+        add_friend_button,
+        create_post_button,
+        like_post_button,
+        comment_button,
+        notifications_button,
+        search_posts_button,
+        search_users_button,
     ]
+
+    gated_buttons = [
+        add_friend_button,
+        create_post_button,
+        like_post_button,
+        comment_button,
+        notifications_button,
+    ]
+
+    def update_session_ui() -> None:
+        if logged_in_user is None:
+            session_button.label = "Iniciar sesión"
+            session_button.callback = open_login_form
+            register_button.enabled = True
+        else:
+            session_button.label = "Cerrar sesión"
+            session_button.callback = logout
+            register_button.enabled = False
+        for button in gated_buttons:
+            button.enabled = logged_in_user is not None
+
+    update_session_ui()
+    open_login_form()
 
     while True:
         for event in pygame.event.get():
@@ -447,9 +626,13 @@ def main() -> None:
                 for button in buttons:
                     button.handle_event(event)
                 if event.type == pygame.MOUSEBUTTONDOWN and event.button == 1:
-                    selected_user = handle_user_click(network, event.pos)
-                    if selected_user:
-                        set_message(f"Usuario activo: {selected_user.username}")
+                    picked_user = handle_user_click(network, event.pos)
+                    if picked_user is not None:
+                        selected_user = picked_user
+                        if logged_in_user and selected_user.username == logged_in_user.username:
+                            set_message("Visualizas tu perfil")
+                        else:
+                            set_message(f"Explorando a {selected_user.username}")
         render(
             screen,
             network,
@@ -459,6 +642,7 @@ def main() -> None:
             notification_log,
             search_posts_results,
             live_activity,
+            logged_in_user,
             active_form,
             font,
             small_font,
@@ -488,13 +672,14 @@ def render(
     notification_log: List[str],
     search_posts_results: List[Post],
     live_activity: List[str],
+    logged_in_user: Optional[User],
     active_form: Optional[Form],
     font: pygame.font.Font,
     small_font: pygame.font.Font,
     big_font: pygame.font.Font,
 ) -> None:
     draw_background(screen)
-    draw_header(screen, message, live_activity, font, small_font, big_font)
+    draw_header(screen, message, live_activity, font, small_font, big_font, logged_in_user)
 
     draw_card(screen, pygame.Rect(20, 130, 210, 520), (54, 63, 110), (110, 138, 210))
     draw_card(screen, pygame.Rect(240, 140, 830, 220), (54, 63, 110), (110, 138, 210))
@@ -506,15 +691,23 @@ def render(
     for button in buttons:
         button.draw(screen, font)
 
-    draw_user_list(screen, network, selected_user, font, small_font)
+    draw_user_list(screen, network, selected_user, logged_in_user, font, small_font)
     draw_feed(screen, network, font, small_font, search_posts_results)
-    draw_user_panel(screen, selected_user, notification_log, font, small_font)
+    panel_user = selected_user if selected_user is not None else logged_in_user
+    draw_user_panel(screen, panel_user, notification_log, font, small_font, logged_in_user)
 
     if active_form is not None:
         active_form.draw(screen, font, big_font)
 
 
-def draw_user_list(screen: pygame.Surface, network: SocialNetwork, selected_user: Optional[User], font: pygame.font.Font, small_font: pygame.font.Font) -> None:
+def draw_user_list(
+    screen: pygame.Surface,
+    network: SocialNetwork,
+    selected_user: Optional[User],
+    session_user: Optional[User],
+    font: pygame.font.Font,
+    small_font: pygame.font.Font,
+) -> None:
     area = pygame.Rect(35, 150, 190, 470)
     usernames = list(network.users.keys())
     for idx, username in enumerate(usernames):
@@ -522,6 +715,7 @@ def draw_user_list(screen: pygame.Surface, network: SocialNetwork, selected_user
         if item_rect.bottom > area.bottom + 60:
             break
         is_selected = selected_user and selected_user.username == username
+        is_session = session_user and session_user.username == username
         base_color = (92, 112, 190) if is_selected else (70, 86, 148)
         glow = pygame.Surface(item_rect.size, pygame.SRCALPHA)
         pygame.draw.rect(glow, base_color + (210,), glow.get_rect(), border_radius=14)
@@ -540,6 +734,12 @@ def draw_user_list(screen: pygame.Surface, network: SocialNetwork, selected_user
         screen.blit(name_surface, (item_rect.x + 64, item_rect.y + 14))
         username_surface = small_font.render(f"@{user.username}", True, (220, 226, 250))
         screen.blit(username_surface, (item_rect.x + 64, item_rect.y + 38))
+
+        if is_session:
+            tag_rect = pygame.Rect(item_rect.right - 74, item_rect.y + 12, 58, 20)
+            pygame.draw.rect(screen, (188, 226, 255), tag_rect, border_radius=10)
+            tag_surface = small_font.render("Tú", True, (40, 70, 110))
+            screen.blit(tag_surface, tag_surface.get_rect(center=tag_rect.center))
 
 
 def draw_feed(screen: pygame.Surface, network: SocialNetwork, font: pygame.font.Font, small_font: pygame.font.Font, search_posts_results: List[Post]) -> None:
@@ -568,12 +768,27 @@ def draw_feed(screen: pygame.Surface, network: SocialNetwork, font: pygame.font.
         screen.blit(stats, (item_rect.right - 150, item_rect.y + 8))
 
 
-def draw_user_panel(screen: pygame.Surface, user: Optional[User], notification_log: List[str], font: pygame.font.Font, small_font: pygame.font.Font) -> None:
+def draw_user_panel(
+    screen: pygame.Surface,
+    user: Optional[User],
+    notification_log: List[str],
+    font: pygame.font.Font,
+    small_font: pygame.font.Font,
+    session_user: Optional[User],
+) -> None:
     area = pygame.Rect(250, 390, 810, 290)
     title = font.render("Resumen del usuario", True, (232, 236, 255))
     screen.blit(title, (area.x + 10, area.y - 32))
 
-    if not user:
+    if not user and not session_user:
+        hint = small_font.render("Inicia sesión o selecciona un usuario para ver detalles", True, (224, 228, 248))
+        screen.blit(hint, (area.x + 20, area.y + 20))
+        return
+
+    if not user and session_user is not None:
+        user = session_user
+
+    if user is None:
         hint = small_font.render("Selecciona un usuario para ver detalles", True, (224, 228, 248))
         screen.blit(hint, (area.x + 20, area.y + 20))
         return
@@ -587,9 +802,20 @@ def draw_user_panel(screen: pygame.Surface, user: Optional[User], notification_l
     bio_surface = small_font.render(user.bio or "Sin biografía", True, (216, 224, 248))
     screen.blit(bio_surface, (header_rect.x + 20, header_rect.y + 64))
 
-    pending = len(user.notifications)
-    badge = small_font.render(f"Notificaciones pendientes: {pending}", True, (240, 244, 255))
-    screen.blit(badge, (header_rect.right - 250, header_rect.y + 20))
+    is_session_user = session_user is not None and user.username == session_user.username
+    pending = len(user.notifications) if not is_session_user else len(session_user.notifications)
+    badge_text = "Tus notificaciones pendientes" if is_session_user else "Notificaciones pendientes"
+    badge = small_font.render(f"{badge_text}: {pending}", True, (240, 244, 255))
+    screen.blit(badge, (header_rect.right - 280, header_rect.y + 20))
+
+    if session_user is not None:
+        context_text = (
+            "Visualizas tu propio perfil"
+            if is_session_user
+            else f"Sesión activa: {session_user.full_name} (@{session_user.username})"
+        )
+        context_surface = small_font.render(context_text, True, (200, 212, 252))
+        screen.blit(context_surface, (header_rect.x + 20, header_rect.bottom - 22))
 
     friends_rect = pygame.Rect(area.x + 20, area.y + 120, 240, 130)
     draw_card(screen, friends_rect, (66, 80, 134), (130, 160, 228))
@@ -617,7 +843,12 @@ def draw_user_panel(screen: pygame.Surface, user: Optional[User], notification_l
     draw_card(screen, notif_rect, (66, 80, 134), (130, 160, 228))
     notif_title = small_font.render("Historial de notificaciones", True, (234, 238, 255))
     screen.blit(notif_title, (notif_rect.x + 16, notif_rect.y + 10))
-    if notification_log:
+    if session_user is None:
+        screen.blit(
+            small_font.render("Inicia sesión para revisar tus avisos", True, (224, 230, 255)),
+            (notif_rect.x + 16, notif_rect.y + 36),
+        )
+    elif notification_log:
         for idx, note in enumerate(notification_log[-4:][::-1]):
             note_surface = small_font.render(note, True, (224, 230, 255))
             screen.blit(note_surface, (notif_rect.x + 16, notif_rect.y + 30 + idx * 18))

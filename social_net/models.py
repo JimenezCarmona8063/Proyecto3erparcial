@@ -45,6 +45,7 @@ class User:
     username: str
     full_name: str
     bio: str = ""
+    password_hash: str = ""
     friends: Set[str] = field(default_factory=set)
     posts: LinkedList[Post] = field(default_factory=LinkedList)
     notifications: Deque[str] = field(default_factory=deque)

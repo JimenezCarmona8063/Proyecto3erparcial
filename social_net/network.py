@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import hashlib
 import heapq
 import random
 from datetime import datetime
@@ -23,15 +24,28 @@ class SocialNetwork:
 
     # -- User management -------------------------------------------------
 
-    def add_user(self, username: str, full_name: str, bio: str = "") -> User:
+    def add_user(self, username: str, full_name: str, bio: str = "", password: str = "") -> User:
         if username in self.users:
             raise ValueError(f"El usuario '{username}' ya existe")
-        user = User(username=username, full_name=full_name, bio=bio)
+        if not password:
+            raise ValueError("La contraseña no puede estar vacía")
+        user = User(
+            username=username,
+            full_name=full_name,
+            bio=bio,
+            password_hash=self._hash_password(password),
+        )
         self.users[username] = user
         return user
 
     def search_users(self, term: str) -> list[User]:
         return [self.users[name] for name in search_collection(self.users.keys(), term)]
+
+    def authenticate_user(self, username: str, password: str) -> User:
+        user = self._require_user(username)
+        if user.password_hash != self._hash_password(password):
+            raise ValueError("Credenciales incorrectas")
+        return user
 
     # -- Friend connections ----------------------------------------------
 
@@ -199,6 +213,10 @@ class SocialNetwork:
     def _push_post(self, post: Post) -> None:
         heapq.heappush(self._post_heap, (-post.priority, post.post_id))
 
+    @staticmethod
+    def _hash_password(password: str) -> str:
+        return hashlib.sha256(password.encode("utf-8")).hexdigest()
+
     # -- Sample data -----------------------------------------------------
 
     def seed_demo_data(self) -> None:
@@ -206,9 +224,9 @@ class SocialNetwork:
 
         if self.users:
             return
-        alice = self.add_user("alice", "Alicia Ramírez", "Apasionada de la fotografía")
-        bob = self.add_user("bob", "Roberto Díaz", "Explorador urbano")
-        carol = self.add_user("carol", "Carolina López", "Chef experimental")
+        alice = self.add_user("alice", "Alicia Ramírez", "Apasionada de la fotografía", "alice123")
+        bob = self.add_user("bob", "Roberto Díaz", "Explorador urbano", "bob123")
+        carol = self.add_user("carol", "Carolina López", "Chef experimental", "carol123")
 
         self.add_friend("alice", "bob")
         self.add_friend("alice", "carol")

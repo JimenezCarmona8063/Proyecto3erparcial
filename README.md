@@ -4,7 +4,8 @@ Aplicación interactiva desarrollada en Python para demostrar el uso integrado d
 
 ## Características principales
 
-- **Gestión de usuarios:** alta de nuevos perfiles con nombre, usuario y biografía.
+- **Gestión de usuarios:** alta de nuevos perfiles con nombre, usuario, biografía y contraseña.
+- **Inicio de sesión seguro:** autenticación con contraseñas cifradas (SHA-256), cambio entre sesiones y formularios guiados para registro.
 - **Red de amigos:** solicitudes bidireccionales para relacionar usuarios.
 - **Publicaciones:** creación de posts almacenados en listas ligadas personalizadas.
 - **Reacciones sociales:** registro de comentarios y "me gusta" para cada publicación.
@@ -51,10 +52,10 @@ python -m social_net.app
 
 Se abrirá una ventana con la interfaz gráfica:
 
-- Selecciona un usuario desde la columna izquierda para activar las acciones.
-- Utiliza los botones superiores para crear usuarios, agregar amigos, publicar, reaccionar y realizar búsquedas.
-- Cada formulario se despliega como un diálogo sobre la interfaz principal y refleja de inmediato los cambios.
-- La cabecera muestra un *ticker* de actividad reciente: cada pocos segundos la red social genera nuevas publicaciones, reacciones y comentarios para que el feed y las notificaciones se actualicen en tiempo real.
+- Al iniciar se mostrará el formulario de inicio de sesión; puedes usar las credenciales demo `alice/alice123`, `bob/bob123` o `carol/carol123`.
+- Utiliza los botones superiores para iniciar/cerrar sesión, registrarte, crear publicaciones, agregar amistades, reaccionar y buscar usuarios o posts.
+- Cada formulario se despliega como un diálogo sobre la interfaz principal y refleja de inmediato los cambios, incluyendo la actualización del feed y el panel del usuario activo.
+- La cabecera muestra un *ticker* de actividad reciente: cada pocos segundos la red social genera nuevas publicaciones, reacciones y comentarios, además de registrar tus propias acciones en tiempo real.
 
 ## Documentación adicional
 
